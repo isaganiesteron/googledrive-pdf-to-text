@@ -1,26 +1,21 @@
-import "dotenv/config"
+// api/index.js
 import express from "express"
 import pdf from "pdf-parse/lib/pdf-parse.js"
 import axios from "axios"
 
 const app = express()
-app.use(express.json())
 
 // Function to convert Google Drive URL to direct download link
 const getGoogleDriveDirectUrl = (url) => {
 	try {
 		const urlObject = new URL(url)
 
-		// Handle different Google Drive URL formats
 		if (urlObject.hostname === "drive.google.com") {
 			let fileId
 
-			// Format: https://drive.google.com/file/d/{fileId}/view
 			if (url.includes("/file/d/")) {
 				fileId = url.split("/file/d/")[1].split("/")[0]
-			}
-			// Format: https://drive.google.com/open?id={fileId}
-			else if (urlObject.searchParams.get("id")) {
+			} else if (urlObject.searchParams.get("id")) {
 				fileId = urlObject.searchParams.get("id")
 			}
 
@@ -32,9 +27,10 @@ const getGoogleDriveDirectUrl = (url) => {
 		console.error("Error parsing Google Drive URL:", error)
 	}
 
-	// Return original URL if it's not a Google Drive URL or if there's an error
 	return url
 }
+
+app.use(express.json())
 
 // API key middleware
 const authenticateApiKey = (req, res, next) => {
@@ -52,10 +48,9 @@ const authenticateApiKey = (req, res, next) => {
 	next()
 }
 
-// Apply API key authentication to all routes
 app.use(authenticateApiKey)
 
-app.post("/convert", async (req, res) => {
+app.post("/api/convert", async (req, res) => {
 	try {
 		const { pdfUrl } = req.body
 
@@ -73,7 +68,7 @@ app.post("/convert", async (req, res) => {
 		// Convert Google Drive URL if necessary
 		const directUrl = getGoogleDriveDirectUrl(pdfUrl)
 
-		// Fetch PDF from URL with custom headers
+		// Fetch PDF from URL
 		const response = await axios.get(directUrl, {
 			responseType: "arraybuffer",
 			timeout: 10000,
@@ -85,13 +80,12 @@ app.post("/convert", async (req, res) => {
 		})
 
 		// Check if content is binary (PDF)
-		const contentType = response.headers["content-type"]
 		const isBinary = response.headers["content-type"]?.includes("application/pdf") || response.headers["content-type"]?.includes("application/octet-stream") || response.headers["content-type"]?.includes("binary/octet-stream")
 
 		if (!isBinary) {
 			return res.status(400).json({
 				error: "URL does not point to a PDF file or is not accessible",
-				contentType,
+				contentType: response.headers["content-type"],
 				url: directUrl,
 			})
 		}
@@ -99,13 +93,8 @@ app.post("/convert", async (req, res) => {
 		// Convert arraybuffer to Buffer for pdf-parse
 		const buffer = Buffer.from(response.data)
 
-		// Parse PDF with options
-		const options = {
-			max: 0,
-			version: false,
-		}
-
-		const data = await pdf(buffer, options)
+		// Parse PDF
+		const data = await pdf(buffer, { max: 0, version: false })
 
 		res.json({
 			status: "success",
@@ -135,21 +124,8 @@ app.post("/convert", async (req, res) => {
 		res.status(statusCode).json({
 			status: "error",
 			message: message,
-			details: error.toString(),
 		})
 	}
 })
 
-// Error handling middleware
-app.use((err, req, res, next) => {
-	console.error(err.stack)
-	res.status(500).json({
-		status: "error",
-		message: "Internal server error",
-	})
-})
-
-const PORT = process.env.PORT || 3000
-app.listen(PORT, () => {
-	console.log(`Server running on port ${PORT}`)
-})
+export default app
